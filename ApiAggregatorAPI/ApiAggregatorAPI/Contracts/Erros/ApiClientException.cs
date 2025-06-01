@@ -7,6 +7,7 @@ namespace ApiAggregatorAPI.Contracts
 		public ErrorType ErrorType { get; set; }
 
 		public ApiClientException(ErrorType errorType, string message)
+			: base(message)
 		{
 			ErrorType = errorType;
 		}

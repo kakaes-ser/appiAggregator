@@ -5,28 +5,29 @@ using ApiAggregatorAPI.Interfaces;
 using ApiAggregatorAPI.Services;
 using Microsoft.Extensions.Options;
 using Moq;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace Tests
 {
-	public class UnitTest1
+	public class Tests
 	{
 		private readonly Mock<ICacheService> _cacheMock = new();
 		private readonly Mock<IPerformanceLogService> _performanceMock = new();
-		private readonly Mock<IRequestService> _requestServiceMock = new();
-		private readonly Mock<IDataRetrieveService> _dataRetrieverServiceMock = new();
 		private readonly Mock<IApiAggregationService> _apiAggregationServiceMock = new();
 		private readonly RequestService _requestService;
-		private readonly ApiAggregationService _apiAggregationService;
 		private readonly DataRetrieveService _dataRetrieveService;
-		private AppSettings? _appSettings;
+		private AppSettings _appSettings;
 
-		public UnitTest1()
+		public Tests()
 		{
 			InitializeSettings();
 			var optionsMock = new Mock<IOptions<AppSettings>>();
 			optionsMock.Setup(o => o.Value).Returns(_appSettings);
 			_requestService = new RequestService(_performanceMock.Object);
-			_apiAggregationService = new ApiAggregationService(_requestServiceMock.Object, optionsMock.Object);
 			_dataRetrieveService = new DataRetrieveService(_apiAggregationServiceMock.Object, _cacheMock.Object, optionsMock.Object);
 		}
 
@@ -47,7 +48,7 @@ namespace Tests
 				return Task.FromResult("{ \"data\": \"success\" }");
 			};
 
-			var result = await _requestService.ExecuteWithRetry(apiCall, "library", _appSettings.ApiClientSettings.MaxRetryCount, _appSettings.ApiClientSettings.DelayInSeconds);
+			var result = await _requestService.ExecuteWithRetry(apiCall, "library", _appSettings.ApiClientSettings.MaxRetryCount ?? 0, _appSettings.ApiClientSettings.DelayInSeconds ?? 0);
 
 			Assert.NotNull(result.Data);
 			Assert.Null(result.Errors);
@@ -61,10 +62,37 @@ namespace Tests
 			var expected = new ApiAggregationResult { LibraryResults = new LibraryResults { Docs = new List<BookDoc>() } };
 			_cacheMock.Setup(c => c.GetCacheAsync<ApiAggregationResult>("results")).ReturnsAsync(expected);
 
-			var result = await _dataRetrieveService.GetData(new());
+			var result = await _dataRetrieveService.GetData(new() { Refresh = false });
 
 			Assert.Equal(expected, result);
 			_cacheMock.Verify(c => c.SetCacheAsync(It.IsAny<string>(), It.IsAny<ApiAggregationResult>(), It.IsAny<TimeSpan>()), Times.Never);
+		}
+
+		[Fact]
+		public async Task ExecuteAsync_ReturnsResponse_WhenApiIsSuccessful()
+		{
+			var api = new ExternalApi
+			{
+				Name = "library",
+				ApiEndPoint = "https://openlibrary.org",
+				Action = "search.json",
+				ApiKey = ""
+			};
+
+			var queryParams = new Dictionary<string, string> { { "q", "philosophy" } };
+
+			_requestService.InitializeRestClient(api.Name, api.ApiEndPoint, 10);
+
+			var result = await _requestService.ExecuteAsync(api, queryParams);
+
+			Assert.NotNull(result);
+			LibraryResults libraryResults = new();
+			if (result != null)
+			{
+				JsonSerializerOptions _jsonSerializerOptions = new() { PropertyNameCaseInsensitive = true };
+				libraryResults = JsonSerializer.Deserialize<LibraryResults>(result, _jsonSerializerOptions);
+			}
+			Assert.NotNull(libraryResults.Docs);
 		}
 
 		private void InitializeSettings()

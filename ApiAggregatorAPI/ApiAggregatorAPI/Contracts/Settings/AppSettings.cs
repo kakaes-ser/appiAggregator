@@ -23,8 +23,8 @@ namespace ApiAggregatorAPI.Contracts.Settings
 
 	public class ApiClientSettings
 	{
-		public int MaxRetryCount { get; set; }
-		public int DelayInSeconds { get; set; }
+		public int? MaxRetryCount { get; set; }
+		public int? DelayInSeconds { get; set; }
 		public int TimeOutInSeconds { get; set; }
 	}
 

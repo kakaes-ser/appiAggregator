@@ -25,7 +25,7 @@ namespace ApiAggregatorAPI.Services
 		{
 			var cachedResult = await _cacheService.GetCacheAsync<ApiAggregationResult>(_AppSettings.CacheSettings.ResultsKey);
 
-			if (cachedResult != null)
+			if (cachedResult != null && !searchFilters.Refresh)
 			{
 				return FilteredData(cachedResult, searchFilters);
 			}
@@ -54,7 +54,7 @@ namespace ApiAggregatorAPI.Services
 				results.LibraryResults = FilterLibraryResultsByKeyword(results.LibraryResults, searchFilters.Keyword);
 			}
 
-			return results;
+			return results ?? new();
 		}
 
 		public static LibraryResults FilterLibraryResultsByKeyword(LibraryResults libraryResults, string keyword)
@@ -66,8 +66,8 @@ namespace ApiAggregatorAPI.Services
 
 			var filteredDocs = libraryResults.Docs
 				.Where(doc =>
-					(!string.IsNullOrWhiteSpace(doc.Title) && doc.Title.ToLowerInvariant().Contains(keyword)) ||
-					(doc.AuthorName != null && doc.AuthorName.Any(author => author?.ToLowerInvariant().Contains(keyword) == true)))
+					!string.IsNullOrWhiteSpace(doc.Title) && doc.Title.ToLowerInvariant().Contains(keyword) ||
+					doc.AuthorName != null && doc.AuthorName.Any(author => author?.ToLowerInvariant().Contains(keyword) == true))
 				.ToList();
 
 			return new LibraryResults
