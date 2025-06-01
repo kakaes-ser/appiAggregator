@@ -25,6 +25,7 @@ builder.Services.AddScoped<ICacheService, CacheService>();
 builder.Services.AddScoped<IPerformanceLogService, PerformanceLogService>();
 builder.Services.AddScoped<IPerformanceStatisticsService, PerformanceStatisticsService>();
 builder.Services.AddScoped<IDataRetrieveService, DataRetrieveService>();
+builder.Services.AddScoped<IRequestService, RequestService>();
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 builder.Services.Configure<AppSettings>(builder.Configuration.GetSection("AppSettings"));

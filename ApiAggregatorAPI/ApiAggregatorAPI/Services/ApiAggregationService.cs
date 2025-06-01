@@ -15,17 +15,17 @@ namespace ApiAggregatorAPI.Services
 {
 	public class ApiAggregationService : IApiAggregationService, IDisposable
 	{
-		private readonly IPerformanceLogService _performanceService;
 		private readonly AppSettings _AppSettings;
 		private readonly JsonSerializerOptions _jsonSerializerOptions;
+		private readonly IRequestService _requestService;
 		private List<(string ApiName, RestClient Client)> _restClients;
 
 		private bool _disposed = false;
 
-		public ApiAggregationService(ICacheService cacheService, IPerformanceLogService performanceService,
+		public ApiAggregationService(IRequestService requestService,
 			IOptions<AppSettings> appsettings)
 		{
-			_performanceService = performanceService;
+			_requestService = requestService;
 			_AppSettings = appsettings.Value;
 			_jsonSerializerOptions = new() { PropertyNameCaseInsensitive = true };
 		}
@@ -41,7 +41,7 @@ namespace ApiAggregatorAPI.Services
 
 				executeTasks.Add(Task.Run(async () =>
 				{
-					var result = await ExecuteWithRetry(() => Execute(externalApi, queryParams, externalApi.ApiKey), externalApi.Name);
+					var result = await _requestService.ExecuteWithRetry(() => Execute(externalApi, queryParams, externalApi.ApiKey), externalApi.Name, _AppSettings.ApiClientSettings.MaxRetryCount, _AppSettings.ApiClientSettings.DelayInSeconds);
 					return (externalApi.Name, result);
 				}));
 			}
@@ -77,46 +77,46 @@ namespace ApiAggregatorAPI.Services
 			}
 		}
 
-		private async Task<ApiCallResult> ExecuteWithRetry(Func<Task<string>> apiCall, string apiName)
-		{
-			List<string> errors = new List<string>();
-			int retryCount = 0;
+		//public async Task<ApiCallResult> ExecuteWithRetry(Func<Task<string>> apiCall, string apiName)
+		//{
+		//	List<string> errors = new List<string>();
+		//	int retryCount = 0;
 
-			DateTime startTime = DateTime.Now;
+		//	DateTime startTime = DateTime.Now;
 
-			while (retryCount < _AppSettings.ApiClientSettings.MaxRetryCount)
-			{
-				try
-				{
-					var result = await apiCall();
-					DateTime endTime = DateTime.Now;
-					var elapsedTime = (endTime - startTime).TotalMilliseconds;
-					await _performanceService.UpdatePerformanceStats(apiName, elapsedTime);
-					return new() { Data = result };
-				}
+		//	while (retryCount < _AppSettings.ApiClientSettings.MaxRetryCount)
+		//	{
+		//		try
+		//		{
+		//			var result = await apiCall();
+		//			DateTime endTime = DateTime.Now;
+		//			var elapsedTime = (endTime - startTime).TotalMilliseconds;
+		//			await _performanceService.UpdatePerformanceStats(apiName, elapsedTime);
+		//			return new() { Data = result };
+		//		}
 
-				catch (ApiClientException ex)
-				{
-					retryCount++;
-					if (ex.ErrorType == ErrorType.Transient)
-					{
-						await Task.Delay(TimeSpan.FromSeconds(_AppSettings.ApiClientSettings.DelayInSeconds));
-					}
-					else
-					{
-						errors.Add($"Retriving data from {apiName} failed because of: {ex.Message}");
-						return new ApiCallResult { Errors = errors };
-					}
-				}
-				catch (Exception ex)
-				{
-					errors.Add($"Retriving data from {apiName} failed because of: {ex.Message}");
-					return new ApiCallResult { Errors = errors };
-				}
-			}
+		//		catch (ApiClientException ex)
+		//		{
+		//			retryCount++;
+		//			if (ex.ErrorType == ErrorType.Transient)
+		//			{
+		//				await Task.Delay(TimeSpan.FromSeconds(_AppSettings.ApiClientSettings.DelayInSeconds));
+		//			}
+		//			else
+		//			{
+		//				errors.Add($"Retriving data from {apiName} failed because of: {ex.Message}");
+		//				return new ApiCallResult { Errors = errors };
+		//			}
+		//		}
+		//		catch (Exception ex)
+		//		{
+		//			errors.Add($"Retriving data from {apiName} failed because of: {ex.Message}");
+		//			return new ApiCallResult { Errors = errors };
+		//		}
+		//	}
 
-			return new ApiCallResult { Errors = errors };
-		}
+		//	return new ApiCallResult { Errors = errors };
+		//}
 
 		private async Task<string> Execute(ExternalApi externalApi, Dictionary<string, string> queryStringParameters, string apiName)
 		{
