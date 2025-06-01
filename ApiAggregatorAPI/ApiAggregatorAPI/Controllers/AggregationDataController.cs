@@ -9,20 +9,20 @@ namespace ApiAggregatorAPI.Controllers
 	[Route("[controller]")]
 	public class AggregationDataController : ControllerBase
 	{
-		private readonly IApiAggregationService _aggregationService;
+		private readonly IDataRetrieveService _dataRetrieveService;
 		private readonly IPerformanceStatisticsService _performanceStatisticsService;
 
-		public AggregationDataController(IApiAggregationService aggregationService,
+		public AggregationDataController(IDataRetrieveService dataRetrieveService,
 			IPerformanceStatisticsService performanceStatisticsService)
 		{
-			_aggregationService = aggregationService;
+			_dataRetrieveService = dataRetrieveService;
 			this._performanceStatisticsService = performanceStatisticsService;
 		}
 
 		[HttpPost]
 		public async Task<IActionResult> GetAggregatedData([FromBody] SearchFilters filters)
 		{
-			var aggregatedData = await _aggregationService.AggregateDataAsync(filters);
+			var aggregatedData = await _dataRetrieveService.GetData(filters);
 			return Ok(aggregatedData);
 		}
 

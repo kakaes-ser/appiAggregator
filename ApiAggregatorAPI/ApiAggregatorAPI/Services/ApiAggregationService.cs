@@ -15,108 +15,66 @@ namespace ApiAggregatorAPI.Services
 {
 	public class ApiAggregationService : IApiAggregationService, IDisposable
 	{
-		private readonly ICacheService _cacheService;
 		private readonly IPerformanceLogService _performanceService;
 		private readonly AppSettings _AppSettings;
 		private readonly JsonSerializerOptions _jsonSerializerOptions;
-		private readonly RestClient _weatherClient;
-		private readonly RestClient _newsClient;
-		private readonly RestClient _libraryClient;
+		private List<(string ApiName, RestClient Client)> _restClients;
 
 		private bool _disposed = false;
 
 		public ApiAggregationService(ICacheService cacheService, IPerformanceLogService performanceService,
 			IOptions<AppSettings> appsettings)
 		{
-			_cacheService = cacheService;
 			_performanceService = performanceService;
 			_AppSettings = appsettings.Value;
 			_jsonSerializerOptions = new() { PropertyNameCaseInsensitive = true };
-
-			_weatherClient = InitializeRestClient("weather");
-			_newsClient = InitializeRestClient("news");
-			_libraryClient = InitializeRestClient("library");
 		}
 
-		public async Task<ApiAggregationResult> AggregateDataAsync(SearchFilters searchFilters)
+		public async Task<ApiAggregationResult> AggregateDataAsync()
 		{
-			var cachedResult = await _cacheService.GetCacheAsync<ApiAggregationResult>("aggregatedData");
+			var executeTasks = new List<Task<(string ApiName, ApiCallResult Result)>>();
 
-			if (cachedResult != null)
+			foreach (var externalApi in _AppSettings.ExternalApis)
 			{
-				return cachedResult;
+				InitializeRestClient(externalApi.Name);
+				var queryParams = externalApi.ApiFilters.ToDictionary(f => f.Key, f => f.Value);
+
+				executeTasks.Add(Task.Run(async () =>
+				{
+					var result = await ExecuteWithRetry(() => Execute(externalApi, queryParams, externalApi.ApiKey), externalApi.Name);
+					return (externalApi.Name, result);
+				}));
 			}
 
-			List<Task<ApiCallResult>> tasks = new()
-			{
-				CallWeatherAsync(new (){Longitude  = searchFilters.Latitude, Latitude = searchFilters.Latitude}),
-				CallNewsArticleAsync(new(){Keyword = searchFilters.NewsKey, DateFrom = DateOnly.FromDateTime(searchFilters.NewsDateFrom), DateTo = DateOnly.FromDateTime(searchFilters.NewsDateTo)}),
-				CallLibraryAsync(new(){Keyword = searchFilters.LibraryKey, Place = searchFilters.LibraryPlace, Limit = searchFilters.LibraryPostsLimit}),
-			};
+			var results = await Task.WhenAll(executeTasks);
 
-			var results = await Task.WhenAll(tasks);
+			var resultDict = results.ToDictionary(r => r.ApiName, r => r.Result);
+			return ParseResults(results, resultDict);
+		}
 
-			WeatherResults weatherResults = results[0]?.Errors is null ? JsonSerializer.Deserialize<WeatherResults>(results[0].Data, _jsonSerializerOptions) : new();
-			NewsResults newsResults = results[1]?.Errors is null ? JsonSerializer.Deserialize<NewsResults>(results[1].Data, _jsonSerializerOptions) : new();
-			LibraryResults libraryResults = results[2]?.Errors is null ? JsonSerializer.Deserialize<LibraryResults>(results[2].Data, _jsonSerializerOptions) : new();
-
-			//await _cacheService.SetCacheAsync("weather", weatherResults, TimeSpan.FromMinutes(2));
-			//await _cacheService.SetCacheAsync("news", newsResults, TimeSpan.FromMinutes(2));
-			//await _cacheService.SetCacheAsync("library", libraryResults, TimeSpan.FromMinutes(2));
+		private ApiAggregationResult ParseResults((string ApiName, ApiCallResult Result)[] results, Dictionary<string, ApiCallResult> resultDict)
+		{
+			resultDict.TryGetValue(ResolveType(ResultType.Weather), out var weatherResult);
+			resultDict.TryGetValue(ResolveType(ResultType.News), out var newsResult);
+			resultDict.TryGetValue(ResolveType(ResultType.Library), out var libraryResult);
 
 			var aggregatedData = new ApiAggregationResult
 			{
-				WeatherResults = weatherResults,
-				NewsResults = newsResults,
-				LibraryResults = libraryResults,
-				Errors = results.Where(w => w.Errors != null).SelectMany(w => w.Errors).ToList()
-			};
+				WeatherResults = weatherResult?.Errors is null ? JsonSerializer.Deserialize<WeatherResults>(weatherResult.Data, _jsonSerializerOptions) : new(),
 
-			await _cacheService.SetCacheAsync("aggregatedData", aggregatedData, TimeSpan.FromMinutes(_AppSettings.CacheSettings.ResultsExpirationMinutes));
+				NewsResults = newsResult?.Errors is null ? JsonSerializer.Deserialize<NewsResults>(newsResult.Data, _jsonSerializerOptions) : new(),
+
+				LibraryResults = libraryResult?.Errors is null ? JsonSerializer.Deserialize<LibraryResults>(libraryResult.Data, _jsonSerializerOptions) : new(),
+
+				Errors = results.SelectMany(r => r.Result.Errors ?? new List<string>()).ToList()
+			};
 
 			return aggregatedData;
-		}
 
-		private async Task<ApiCallResult> CallNewsArticleAsync(NewsFilters filters)
-		{
-			ExternalApi externalApi = _AppSettings.ExternalApis.FirstOrDefault(f => f.Name == "news");
-
-			Dictionary<string, string> queryStringParameters = new Dictionary<string, string>()
+			string ResolveType(ResultType resultType)
 			{
-				{"q", filters.Keyword },
-				{"from", filters.DateFrom.ToString("yyyy-MM-dd") },
-				{"to", filters.DateTo.ToString("yyyy-MM-dd") }
-			};
-
-			return await ExecuteWithRetry(() => Execute(externalApi, queryStringParameters, externalApi.ApiKey), externalApi.Name);
-		}
-
-		private async Task<ApiCallResult> CallWeatherAsync(WeatherFilters filters)
-		{
-			ExternalApi externalApi = _AppSettings.ExternalApis.FirstOrDefault(f => f.Name == "weather");
-
-			Dictionary<string, string> queryStringParameters = new Dictionary<string, string>()
-			{
-				{"lat", filters.Latitude.ToString() },
-				{"lon", filters.Longitude.ToString() },
-			};
-
-			return await ExecuteWithRetry(() => Execute(externalApi, queryStringParameters, externalApi.ApiKey), externalApi.Name);
-
-		}
-
-		private async Task<ApiCallResult> CallLibraryAsync(LibraryFilters filters)
-		{
-			ExternalApi externalApi = _AppSettings.ExternalApis.FirstOrDefault(f => f.Name == "library");
-
-			Dictionary<string, string> queryStringParameters = new Dictionary<string, string>()
-			{
-				{"q", filters.Keyword },
-				{"place", filters.Place },
-				{"limit", filters.Limit.ToString() }
-			};
-
-			return await ExecuteWithRetry(() => Execute(externalApi, queryStringParameters, externalApi.ApiKey), externalApi.Name);
+				return _AppSettings.Categories.SingleOrDefault(s => s.Key == (int)resultType).Type;
+			}
 		}
 
 		private async Task<ApiCallResult> ExecuteWithRetry(Func<Task<string>> apiCall, string apiName)
@@ -190,7 +148,7 @@ namespace ApiAggregatorAPI.Services
 
 		}
 
-		private RestClient InitializeRestClient(string apiName)
+		private void InitializeRestClient(string apiName)
 		{
 
 			var externalApi = _AppSettings.ExternalApis.FirstOrDefault(f => f.Name == apiName);
@@ -204,7 +162,8 @@ namespace ApiAggregatorAPI.Services
 				Timeout = TimeSpan.FromSeconds(_AppSettings.ApiClientSettings.TimeOutInSeconds)
 			};
 
-			return new RestClient(externalApi.ApiEndPoint);
+
+			(_restClients ??= new()).Add((apiName, new(externalApi.ApiEndPoint)));
 		}
 
 		private void HandleFailedResponseStatusCodes(RestResponse restResponse)
@@ -223,22 +182,19 @@ namespace ApiAggregatorAPI.Services
 
 		private RestClient ResolveRestClient(string apiName)
 		{
-			return apiName switch
-			{
-				"news" => _newsClient,
-				"weather" => _weatherClient,
-				"library" => _libraryClient,
-				_ => throw new Exception($"Cannot resolve rest client implementation for api {apiName}.")
-			};
+			return _restClients.SingleOrDefault(s => s.ApiName == apiName).Client;
 		}
 		public void Dispose()
 		{
 			if (!_disposed)
 			{
-				_weatherClient?.Dispose();
-				_newsClient?.Dispose();
-				_libraryClient?.Dispose();
-				_disposed = true;
+				if (_restClients is not null)
+				{
+					foreach (var restClient in _restClients)
+					{
+						restClient.Client.Dispose();
+					}
+				}
 			}
 		}
 	}

@@ -9,7 +9,7 @@ namespace ApiAggregatorAPI.Contracts.BusinessModels
 		public string Description { get; set; }
 		public string Url { get; set; }
 		public string UrlToImage { get; set; }
-		public DateTime PaublishedAt { get; set; }
+		public DateTime PublishedAt { get; set; }
 		public string Content { get; set; }
 		public Source SourceSource { get; set; }
 	}

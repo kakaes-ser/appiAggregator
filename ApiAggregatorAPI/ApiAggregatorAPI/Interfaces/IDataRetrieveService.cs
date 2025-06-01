@@ -3,8 +3,8 @@ using System.Threading.Tasks;
 
 namespace ApiAggregatorAPI.Interfaces
 {
-	public interface IApiAggregationService
+	public interface IDataRetrieveService
 	{
-		Task<ApiAggregationResult> AggregateDataAsync();
+		Task<ApiAggregationResult> GetData(SearchFilters searchFilters);
 	}
 }
