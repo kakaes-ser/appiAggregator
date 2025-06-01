@@ -36,6 +36,7 @@ namespace Tests
 		public async Task ShouldRetryOnTransientError()
 		{
 			var externalApi = _appSettings?.ExternalApis.First();
+			externalApi.ApiEndPoint = "https://openlibrary.org:8081";
 			var query = new Dictionary<string, string>();
 
 			var callCount = 0;
@@ -69,7 +70,7 @@ namespace Tests
 		}
 
 		[Fact]
-		public async Task ExecuteAsync_ReturnsResponse_WhenApiIsSuccessful()
+		public async Task ExecuteAsyncWhenApiIsSuccessful()
 		{
 			var api = new ExternalApi
 			{
@@ -101,7 +102,7 @@ namespace Tests
 			_appSettings.ExternalApis = new()
 			{ new ExternalApi
 			{
-				Name = "library", ApiEndPoint = "https://openlibrary.org:8081", Action = "search.json", ApiFilters = new List<ApiFilter>(){ new ApiFilter { Key = "q", Value = "philosophy"} }
+				Name = "library", ApiEndPoint = "https://openlibrary.org", Action = "search.json", ApiFilters = new List<ApiFilter>(){ new ApiFilter { Key = "q", Value = "philosophy"} }
 			}
 
 			};
